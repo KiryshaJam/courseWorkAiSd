@@ -1,0 +1,335 @@
+#include <iostream>
+#include <string>
+#include <fstream>
+#include <sstream>
+
+using namespace std;
+
+const int NEED_TO_GALOP = 7;
+
+// Структура для ребра
+struct Edge {
+    int u, v;
+    int weight;
+    bool operator<(const Edge& other) const {
+        return weight < other.weight;
+    }
+};
+
+class DynamicArray {
+private:
+    Edge* array; // Теперь это массив объектов типа Edge
+    int capacity;
+    int size;
+
+    void resize(int newCapacity) {
+        Edge* newArray = new Edge[newCapacity];
+        for (int i = 0; i < size; ++i) {
+            newArray[i] = array[i];
+        }
+        delete[] array;
+        array = newArray;
+        capacity = newCapacity;
+    }
+
+public:
+    DynamicArray() {
+        array = new Edge[2];
+        capacity = 2;
+        size = 0;
+    }
+
+    ~DynamicArray() {
+        delete[] array;
+    }
+
+    void addElement(const Edge& element) {
+        if (size == capacity) {
+            resize(capacity * 2);
+        }
+        array[size] = element;
+        ++size;
+    }
+
+    int getSize() const {
+        return size;
+    }
+
+    Edge& operator[](int index) {
+        if (index >= 0 && index < size) {
+            return array[index];
+        } else {
+            cout << "Индекс вне диапазона!";
+            exit(1);  // Прерывание программы в случае ошибки
+        }
+    }
+
+    void insertElement(int index, const Edge& element) {
+        if (index < 0 || index > size) {
+            cout << "Индекс вне диапазона!" << endl;
+            return;
+        }
+
+        if (size == capacity) {
+            resize(capacity * 2);
+        }
+
+        for (int i = size; i > index; --i) {
+            array[i] = array[i - 1];
+        }
+
+        array[index] = element;
+        ++size;
+    }
+
+    void printArray() const {
+        std::cout << "Элементы массива: ";
+        for (int i = 0; i < size; ++i) {
+            std::cout << "(" << array[i].u << ", " << array[i].v << ") ";
+        }
+        std::cout << std::endl;
+    }
+
+    void deleteArray() {
+        delete[] array;
+        array = nullptr;
+        size = 0;
+        capacity = 0;
+    }
+};
+
+// Функция сортировки вставками
+void insertionSort(DynamicArray& arr, int left, int right) {
+    for (int i = left + 1; i <= right; i++) {
+        Edge temp = arr[i];
+        int j = i - 1;
+        
+        while (j >= left && arr[j].weight > temp.weight) {
+            arr[j + 1] = arr[j];
+            j--;
+        }
+        arr[j + 1] = temp;
+    }
+}
+
+int gallopSearchLeft(DynamicArray& arr, int value, int start, int end) {
+    while (start < end) {
+        int mid = (start + end) / 2;
+        if (arr[mid].weight < value) {
+            start = mid + 1;
+        } else {
+            end = mid;
+        }
+    }
+    return start;
+}
+
+int gallopSearchRight(DynamicArray& arr, int value, int start, int end) {
+    while (start < end) {
+        int mid = (start + end) / 2;
+        if (arr[mid].weight <= value) {
+            start = mid + 1;
+        } else {
+            end = mid;
+        }
+    }
+    return start;
+}
+
+int calculateMinRun(int n) {
+    int r = 0;
+    while (n >= 64) {
+        r |= (n & 1);
+        n >>= 1;
+    }
+    return n + r;
+}
+
+void merge(DynamicArray& arr, int left, int mid, int right) {
+    int len1 = mid - left + 1;
+    int len2 = right - mid;
+
+    DynamicArray leftArr, rightArr;
+
+    for (int i = 0; i < len1; i++) {
+        leftArr.addElement(arr[left + i]);
+    }
+    for (int i = 0; i < len2; i++) {
+        rightArr.addElement(arr[mid + 1 + i]);
+    }
+
+    int i = 0, j = 0, k = left;
+    int gallopLeft = 0, gallopRight = 0;
+
+    while (i < len1 && j < len2) {
+        if (leftArr[i].weight <= rightArr[j].weight) {
+            arr[k++] = leftArr[i++];
+            gallopRight = 0;
+            if (++gallopLeft >= NEED_TO_GALOP) {
+                int newIdx = gallopSearchLeft(rightArr, leftArr[i].weight, j, len2);
+                while (j < newIdx) arr[k++] = rightArr[j++];
+                gallopLeft = 0;
+            }
+        } else {
+            arr[k++] = rightArr[j++];
+            gallopLeft = 0;
+            if (++gallopRight >= NEED_TO_GALOP) {
+                int newIdx = gallopSearchRight(leftArr, rightArr[j].weight, i, len1);
+                while (i < newIdx) arr[k++] = leftArr[i++];
+                gallopRight = 0;
+            }
+        }
+    }
+
+    while (i < len1) arr[k++] = leftArr[i++];
+    while (j < len2) arr[k++] = rightArr[j++];
+}
+
+void timSort(DynamicArray& arr) {
+    int n = arr.getSize();
+    int minrun = calculateMinRun(n);
+
+    for (int i = 0; i < n; i += minrun) {
+        int right = std::min(i + minrun - 1, n - 1);
+        insertionSort(arr, i, right);
+    }
+
+    for (int size = minrun; size < n; size = 2 * size) {
+        for (int left = 0; left < n; left += 2 * size) {
+            int mid = left + size - 1;
+            int right = std::min(left + 2 * size - 1, n - 1);
+
+            if (mid < right) {
+                merge(arr, left, mid, right);
+            }
+        }
+    }
+}
+
+// Структура для системы непересекающихся множеств (Union-Find)
+struct UnionFind {
+    int* parent;
+    int* rank;
+    int size;
+
+    UnionFind(int n) {
+        size = n;
+        parent = new int[size];
+        rank = new int[size];
+        for (int i = 0; i < size; ++i) {
+            parent[i] = i;
+            rank[i] = 0;
+        }
+    }
+
+    ~UnionFind() {
+        delete[] parent;
+        delete[] rank;
+    }
+
+    int find(int u) {
+        if (parent[u] != u)
+            parent[u] = find(parent[u]);
+        return parent[u];
+    }
+
+    bool union_sets(int u, int v) {
+        int root_u = find(u);
+        int root_v = find(v);
+        if (root_u != root_v) {
+            if (rank[root_u] < rank[root_v])
+                parent[root_u] = root_v;
+            else if (rank[root_u] > rank[root_v])
+                parent[root_v] = root_u;
+            else {
+                parent[root_v] = root_u;
+                rank[root_u]++;
+            }
+            return true;
+        }
+        return false;
+    }
+};
+
+// Функция для выполнения алгоритма Краскала
+int kruskalAlgorithm(int n, DynamicArray& edges, const std::string* vertices) {
+    UnionFind uf(n);
+    int mst_weight = 0;
+    DynamicArray mst_edges;  // Храним рёбра минимального остова
+
+    for (int i = 0; i < edges.getSize(); ++i) {
+        const Edge& edge = edges[i];
+        if (uf.union_sets(edge.u, edge.v)) {
+            mst_weight += edge.weight;
+            mst_edges.addElement(edge);  // Добавляем ребро в минимальный остов
+        }
+    }
+
+    // Выводим результат
+    for (int i = 0; i < mst_edges.getSize(); ++i) {
+        const Edge& edge = mst_edges[i];
+        std::cout << vertices[edge.u] << " " << vertices[edge.v] << std::endl;
+    }
+    return mst_weight;
+}
+
+int main() {
+    ifstream inputFile("graph.txt");  // Открытие файла с графом
+    if (!inputFile) {
+        cerr << "Ошибка при открытии файла!" << endl;
+        return 1;
+    }
+
+    string line;
+    string vertices[10];  // Статический массив для вершин
+    int n = 0;  // Количество вершин
+
+    // Считываем список вершин
+    if (getline(inputFile, line)) {
+        stringstream ss(line);
+        while (ss >> vertices[n]) {
+            ++n;
+        }
+    }
+
+    int graph[10][10];  // Матрица смежности
+
+    // Считываем матрицу смежности
+    for (int i = 0; i < n; ++i) {
+        if (getline(inputFile, line)) {
+            stringstream ss(line);
+            for (int j = 0; j < n; ++j) {
+                ss >> graph[i][j];
+            }
+        }
+    }
+
+    inputFile.close();  // Закрытие файла
+
+    // Создаём динамический массив для рёбер
+    DynamicArray edges;
+
+    // Преобразуем матрицу смежности в список рёбер
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            if (graph[i][j] > 0) {
+                Edge edge;
+                edge.u = i;
+                edge.v = j;
+                edge.weight = graph[i][j];
+                edges.addElement(edge);  // Добавляем объект Edge
+            }
+        }
+    }
+
+    // Сортировка рёбер с помощью Teemsort
+    timSort(edges);
+
+    // Выполнение алгоритма Краскала
+    int mst_weight = kruskalAlgorithm(n, edges, vertices);
+
+    // Выводим суммарный вес минимального остова
+    std::cout << mst_weight << std::endl;
+
+    return 0;
+}
